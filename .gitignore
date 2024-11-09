@@ -1,0 +1,37 @@
+# Binaries
+*.exe
+*.dll
+*.so
+*.dylib
+*.out
+
+# Build directory
+/build/
+bin/
+dist/
+
+.env
+
+# Go test binary
+*.test
+
+# Vendor directory (if using vendoring with go mod vendor)
+vendor/
+
+# Go module files
+go.sum
+
+# IDE and editor settings
+.idea/
+.vscode/
+*.swp
+
+# Dependency and package caches
+.gopath/
+*.log
+
+# macOS specific files
+.DS_Store
+
+# Git specific files
+*.patch
