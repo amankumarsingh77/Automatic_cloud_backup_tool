@@ -30,6 +30,9 @@ go.sum
 .gopath/
 *.log
 
+Auto_backup/
+demo_files/
+
 # macOS specific files
 .DS_Store
 
