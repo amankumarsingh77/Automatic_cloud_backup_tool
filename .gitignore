@@ -21,6 +21,8 @@ vendor/
 # Go module files
 go.sum
 
+demo_files/*
+
 # IDE and editor settings
 .idea/
 .vscode/
@@ -31,7 +33,6 @@ go.sum
 *.log
 
 Auto_backup/
-demo_files/
 
 # macOS specific files
 .DS_Store
