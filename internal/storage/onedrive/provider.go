@@ -18,9 +18,10 @@ import (
 )
 
 type OneDriveProvider struct {
-	client *http.Client
-	config *oauth2.Config
-	token  *oauth2.Token
+	client          *http.Client
+	config          *oauth2.Config
+	token           *oauth2.Token
+	isAuthenticated bool
 }
 
 type DriveItem struct {
@@ -96,11 +97,18 @@ func (p *OneDriveProvider) Authenticate() error {
 	p.token = token
 	ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: p.token.AccessToken})
 	p.client = oauth2.NewClient(context.Background(), ts)
+	p.isAuthenticated = true
 	fmt.Println("Authentication successful and token saved")
 	return nil
 }
 
 func (p *OneDriveProvider) Upload(localPath, remotePath string) error {
+	if !p.isAuthenticated {
+		err := p.Authenticate()
+		if err != nil {
+			return err
+		}
+	}
 	file, err := os.Open(localPath)
 	filename := filepath.Base(localPath)
 	if err != nil {

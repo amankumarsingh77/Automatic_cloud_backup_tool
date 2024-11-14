@@ -21,6 +21,8 @@ vendor/
 # Go module files
 go.sum
 
+backup_tasks.json
+
 demo_files/*
 
 # IDE and editor settings
