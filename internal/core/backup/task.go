@@ -125,7 +125,7 @@ func (t *BackupTask) ExecuteTask() error {
 		onedriveProvider := onedrive.NewOneDriveProvider()
 		err := onedriveProvider.Upload(filePath, t.DestinationPath)
 		if err != nil {
-			errMsg := fmt.Sprintf("cannot upload backup task to onedrive: %v", err)
+			errMsg := fmt.Sprintf("cannot upload backup task to onedrive: %v", err.Error())
 			t.Status = StatusFailed
 			UpdateTaskStatus(t.ID, t.Status, errMsg)
 			return fmt.Errorf(errMsg)

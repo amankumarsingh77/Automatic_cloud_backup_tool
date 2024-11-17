@@ -8,8 +8,8 @@ import (
 
 func main() {
 	task := &backup.BackupTask{
-		SourcePath:      `C:\Users\PC\Downloads\Biig FRESH proxy list 01-11-24 ( HTTPS ).txt`,
-		Provider:        "onedrive",
+		SourcePath:      `/Users/amankumar/Desktop/Hackathon_execution.mov`,
+		Provider:        "gdrive",
 		DestinationPath: "/aman_demo_automated",
 		Recurring:       false,
 		Compress:        false,

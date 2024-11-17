@@ -4,12 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/amankumarsingh77/automated_backup_tool/internal/config"
 	"github.com/amankumarsingh77/automated_backup_tool/internal/utils/filesystem"
-	"github.com/joho/godotenv"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/microsoft"
 	"io"
-	"log"
 	"mime"
 	"net/http"
 	"os"
@@ -52,24 +51,18 @@ type FileInfo struct {
 	MimeType string `json:"mimeType"`
 }
 
-func init() {
-	err := godotenv.Load(".env")
-	if err != nil {
-		log.Fatal("Error loading .env file")
-	}
-}
-
 func NewOneDriveProvider() *OneDriveProvider {
 	return &OneDriveProvider{}
 }
 
 func (p *OneDriveProvider) Authenticate() error {
+	envConfig := config.LoadConfig()
 	// For some reason there is no need to provide client_secret ;)
-	config := &oauth2.Config{
-		ClientID: os.Getenv("ONEDRIVE_CLIENT_ID"),
+	oneDriveConfig := &oauth2.Config{
+		ClientID: envConfig.Providers.OneDrive.ClientID,
 		//ClientSecret: os.Getenv("ONEDRIVE_CLIENT_SECRET"),
 		Endpoint:    microsoft.AzureADEndpoint("common"),
-		RedirectURL: os.Getenv("ONEDRIVE_REDIRECT_URL"),
+		RedirectURL: envConfig.Providers.OneDrive.ONEDRIVE_CLIENT_REDIRECT_URL,
 		Scopes:      []string{"offline_access", "Files.ReadWrite"},
 	}
 
@@ -81,12 +74,12 @@ func (p *OneDriveProvider) Authenticate() error {
 		return nil
 	}
 
-	authUrl := config.AuthCodeURL("state-token", oauth2.AccessTypeOffline, oauth2.ApprovalForce)
+	authUrl := oneDriveConfig.AuthCodeURL("state-token", oauth2.AccessTypeOffline, oauth2.ApprovalForce)
 	fmt.Printf("Visit the URL for the auth dialog: %v", authUrl)
 	var code string
 	fmt.Println("Enter the code below:")
 	fmt.Scanln(&code)
-	token, err = config.Exchange(context.Background(), code)
+	token, err = oneDriveConfig.Exchange(context.Background(), code)
 	if err != nil {
 		return fmt.Errorf("error occured while generating token : %v\n", err.Error())
 	}
@@ -110,10 +103,10 @@ func (p *OneDriveProvider) Upload(localPath, remotePath string) error {
 		}
 	}
 	file, err := os.Open(localPath)
-	filename := filepath.Base(localPath)
 	if err != nil {
 		return fmt.Errorf("could not open file: %v", err.Error())
 	}
+	filename := filepath.Base(localPath)
 	defer file.Close()
 	url := fmt.Sprintf("items/root:/%s/%s:/content", remotePath, filename)
 	resp, err := makeRequest("PUT", url, p.token, file)
@@ -121,7 +114,7 @@ func (p *OneDriveProvider) Upload(localPath, remotePath string) error {
 		return fmt.Errorf("could not upload file: %v", err.Error())
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusCreated {
+	if !(resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusBadRequest) {
 		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("could not upload file: %v", body)
 	}
