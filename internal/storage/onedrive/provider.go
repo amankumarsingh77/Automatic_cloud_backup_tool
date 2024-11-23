@@ -4,16 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/amankumarsingh77/automated_backup_tool/internal/config"
-	"github.com/amankumarsingh77/automated_backup_tool/internal/utils/filesystem"
-	"golang.org/x/oauth2"
-	"golang.org/x/oauth2/microsoft"
 	"io"
 	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/amankumarsingh77/automated_backup_tool/internal/config"
+	"github.com/amankumarsingh77/automated_backup_tool/internal/utils/filesystem"
+	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/microsoft"
 )
 
 type OneDriveProvider struct {
@@ -57,10 +58,10 @@ func NewOneDriveProvider() *OneDriveProvider {
 
 func (p *OneDriveProvider) Authenticate() error {
 	envConfig := config.LoadConfig()
-	// For some reason there is no need to provide client_secret ;)
+	
 	oneDriveConfig := &oauth2.Config{
 		ClientID: envConfig.Providers.OneDrive.ClientID,
-		//ClientSecret: os.Getenv("ONEDRIVE_CLIENT_SECRET"),
+		
 		Endpoint:    microsoft.AzureADEndpoint("common"),
 		RedirectURL: envConfig.Providers.OneDrive.ONEDRIVE_CLIENT_REDIRECT_URL,
 		Scopes:      []string{"offline_access", "Files.ReadWrite"},

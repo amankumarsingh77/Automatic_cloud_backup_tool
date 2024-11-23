@@ -4,12 +4,15 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
+	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
-	"github.com/amankumarsingh77/automated_backup_tool/internal/config"
 	"github.com/amankumarsingh77/automated_backup_tool/internal/utils/filesystem"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
@@ -18,80 +21,128 @@ import (
 )
 
 type GoogleDriveProvider struct {
-	service         *drive.Service
-	token           *oauth2.Token
-	isAuthenticated bool
+	config  *oauth2.Config
+	token   *oauth2.Token
+	service *drive.Service
 }
 
 func NewGoogleDriveProvider() *GoogleDriveProvider {
-	provider := &GoogleDriveProvider{}
-	return provider
+	return &GoogleDriveProvider{}
+}
+
+func (p *GoogleDriveProvider) SetCredentials(clientID, clientSecret, redirectURL string) {
+	p.config = &oauth2.Config{
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+		RedirectURL:  redirectURL,
+		Scopes: []string{
+			drive.DriveScope,
+		},
+		Endpoint: google.Endpoint,
+	}
 }
 
 func (p *GoogleDriveProvider) Authenticate() error {
-	if p.isAuthenticated && p.service != nil {
-		return nil
-	}
-
-	envConfig := config.LoadConfig()
-
-	gdriveConfig := oauth2.Config{
-		ClientID:     envConfig.Providers.GoogleDrive.ClientID,
-		ClientSecret: envConfig.Providers.GoogleDrive.ClientSecret,
-
-		Endpoint:    google.Endpoint,
-		RedirectURL: envConfig.Providers.GoogleDrive.GOOGLE_CLIENT_REDIRECT_URL,
-		Scopes:      []string{drive.DriveScope},
-	}
-
 	token, err := filesystem.GetToken("google-drive")
-	if err == nil {
+	if err == nil && token.Valid() {
 		p.token = token
-		client := gdriveConfig.Client(context.Background(), p.token)
+		client := p.config.Client(context.Background(), p.token)
 		if p.service, err = drive.NewService(context.Background(), option.WithHTTPClient(client)); err != nil {
-			return fmt.Errorf("failed to create drive service: %w", err)
+			return fmt.Errorf("failed to create drive service: %v", err)
 		}
-		p.isAuthenticated = true
 		return nil
 	}
 
-	authURL := gdriveConfig.AuthCodeURL("state-token", oauth2.AccessTypeOffline)
-	fmt.Printf("Visit the following URL to authenticate: %s\n", authURL)
+	codeChan := make(chan string, 1)
+	errChan := make(chan error, 1)
 
-	var code string
-	fmt.Print("Enter the authorization code: ")
-	if _, err := fmt.Scanln(&code); err != nil {
-		return fmt.Errorf("failed to read authorization code: %w", err)
+	server := &http.Server{Addr: ":8080"}
+
+	http.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
+		code := r.URL.Query().Get("code")
+		if code == "" {
+			errChan <- fmt.Errorf("no code in callback")
+			w.Write([]byte("Authentication failed. You can close this window."))
+			return
+		}
+
+		codeChan <- code
+		w.Write([]byte("Authentication successful! You can close this window."))
+
+		go func() {
+			time.Sleep(time.Second)
+			server.Shutdown(context.Background())
+		}()
+	})
+
+	go func() {
+		if err := server.ListenAndServe(); err != http.ErrServerClosed {
+			errChan <- fmt.Errorf("failed to start server: %v", err)
+		}
+	}()
+
+	authURL := p.config.AuthCodeURL("state-token", oauth2.AccessTypeOffline)
+	log.Println(authURL)
+
+	if err := openBrowser(authURL); err != nil {
+		return fmt.Errorf("failed to open browser: %v", err)
 	}
 
-	token, err = gdriveConfig.Exchange(context.Background(), code)
-	if err != nil {
-		return fmt.Errorf("failed to exchange token: %w", err)
+	select {
+	case code := <-codeChan:
+
+		token, err := p.config.Exchange(context.Background(), code)
+		if err != nil {
+			return fmt.Errorf("failed to exchange token: %v", err)
+		}
+		p.token = token
+
+		err = filesystem.SaveTokenLocally("google-drive", p.token)
+		if err != nil {
+			return fmt.Errorf("failed to save token locally : %v", err)
+		}
+
+		client := p.config.Client(context.Background(), p.token)
+		p.service, err = drive.NewService(context.Background(), option.WithHTTPClient(client))
+		if err != nil {
+			return fmt.Errorf("failed to create drive service: %v", err)
+		}
+
+		return nil
+
+	case err := <-errChan:
+		return err
+
+	case <-time.After(2 * time.Minute):
+		return fmt.Errorf("authentication timed out")
 	}
-
-	p.token = token
-	client := gdriveConfig.Client(context.Background(), p.token)
-
-	if p.service, err = drive.NewService(context.Background(), option.WithHTTPClient(client)); err != nil {
-		return fmt.Errorf("failed to create drive service: %w", err)
-	}
-
-	if err = filesystem.SaveTokenLocally("google-drive", p.token); err != nil {
-		return fmt.Errorf("failed to save token locally: %w", err)
-	}
-
-	p.isAuthenticated = true
-	return nil
 }
 
-func (p *GoogleDriveProvider) Upload(localPath, remotePath string) error {
-	if !p.isAuthenticated {
+func openBrowser(url string) error {
+	var err error
+	switch runtime.GOOS {
+	case "windows":
+		err = exec.Command("cmd", "/c", "start", url).Start()
+	case "darwin":
+		err = exec.Command("open", url).Start()
+	case "linux":
+		err = exec.Command("xdg-open", url).Start()
+	default:
+		err = fmt.Errorf("unsupported platform")
+	}
+	return err
+}
+
+func (p *GoogleDriveProvider) Upload(isSingle bool, localPath, remotePath string) error {
+	if p.service == nil {
 		err := p.Authenticate()
 		if err != nil {
 			return err
 		}
 	}
 	done := make(chan error)
+
+	remotePath = strings.ReplaceAll(filepath.Dir(filepath.Clean(remotePath)), "\\", "/")
 
 	go func() {
 		file, err := os.Open(localPath)
@@ -135,13 +186,13 @@ func (p *GoogleDriveProvider) Upload(localPath, remotePath string) error {
 	select {
 	case err := <-done:
 		return err
-	case <-time.After(2 * time.Hour): // Long timeout for large files
+	case <-time.After(2 * time.Hour):
 		return fmt.Errorf("upload timed out after 2 hours")
 	}
 }
 
 func (p *GoogleDriveProvider) Download(localPath, fileId string) error {
-	if !p.isAuthenticated {
+	if p.service == nil {
 		err := p.Authenticate()
 		if err != nil {
 			return err
@@ -179,8 +230,11 @@ func (p *GoogleDriveProvider) Download(localPath, fileId string) error {
 }
 
 func (p *GoogleDriveProvider) Delete(fileId string) error {
-	if p == nil || p.service == nil {
-		return fmt.Errorf("provider not properly initialized")
+	if p.service == nil {
+		err := p.Authenticate()
+		if err != nil {
+			return err
+		}
 	}
 
 	if err := p.service.Files.Delete(fileId).Do(); err != nil {
@@ -190,8 +244,11 @@ func (p *GoogleDriveProvider) Delete(fileId string) error {
 }
 
 func (p *GoogleDriveProvider) ListFiles(folderId string) ([]*drive.File, error) {
-	if p == nil || p.service == nil {
-		return nil, fmt.Errorf("provider not properly initialized")
+	if p.service == nil {
+		err := p.Authenticate()
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	var files []*drive.File
@@ -216,10 +273,6 @@ func (p *GoogleDriveProvider) ListFiles(folderId string) ([]*drive.File, error) 
 }
 
 func (p *GoogleDriveProvider) getOrCreateFolder(path string) (string, error) {
-	// if p == nil || p.service == nil {
-	// 	return "", fmt.Errorf("provider not properly initialized")
-	// }
-
 	parts := strings.Split(strings.Trim(path, "/"), "/")
 	parentId := "root"
 
@@ -269,5 +322,4 @@ func (p *GoogleDriveProvider) isFileExist(path, folderId string) (string, bool) 
 		return "", false
 	}
 	return r.Files[0].Id, true
-
 }

@@ -18,6 +18,8 @@ dist/
 # Vendor directory (if using vendoring with go mod vendor)
 vendor/
 
+logs/
+testfiles/
 # Go module files
 go.sum
 

@@ -1,30 +1,64 @@
 package filesystem
 
 import (
+	"archive/tar"
 	"compress/gzip"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 )
 
-func CompressFile(filePath string) (string, error) {
-	file, err := os.Open(filePath)
+func CompressFile(folderPath string) (string, error) {
+	compressedFile, err := os.Create(filepath.Base(folderPath) + ".gz")
 	if err != nil {
-		return "", err
-	}
-	defer file.Close()
-	compressedFile, err := os.Create(filepath.Base(filePath) + ".gzip")
-	if err != nil {
-		return "", err
+		return "", fmt.Errorf("could not create a compressed file : %v", err.Error())
 	}
 	defer compressedFile.Close()
+
 	gzipWriter := gzip.NewWriter(compressedFile)
 	defer gzipWriter.Close()
 
-	_, err = io.Copy(gzipWriter, compressedFile)
+	tarWriter := tar.NewWriter(gzipWriter)
+	defer tarWriter.Close()
+
+	err = filepath.Walk(folderPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if path == folderPath {
+			return nil
+		}
+		file, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+
+		relpath, err := filepath.Rel(folderPath, path)
+		if err != nil {
+			return err
+		}
+
+		header := &tar.Header{
+			Name: relpath,
+			Size: info.Size(),
+			Mode: int64(info.Mode()),
+		}
+
+		err = tarWriter.WriteHeader(header)
+		if err != nil {
+			return err
+		}
+
+		_, err = io.Copy(tarWriter, file)
+		if err != nil {
+			return err
+		}
+		return nil
+	})
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("could not compress file : %v", err.Error())
 	}
-	gzipWriter.Flush()
-	return filepath.Base(filePath) + ".gz", nil
+	return filepath.Base(folderPath) + ".gz", nil
 }

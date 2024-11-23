@@ -1,9 +1,10 @@
 package onedrive
 
 import (
-	"golang.org/x/oauth2"
 	"io"
 	"net/http"
+
+	"golang.org/x/oauth2"
 )
 
 const ONEDRIVE_BASE_URL = "https://graph.microsoft.com/v1.0/me/drive/"
